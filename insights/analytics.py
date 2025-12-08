@@ -1,22 +1,75 @@
+# insights/analytics.py
+
 import pandas as pd
 
-def expense_trends(invoice_records):
+
+def expense_trends(data):
     """
-    Calculate monthly spending per vendor and category.
-    
-    invoice_records: list of dicts with keys: 'invoice_date', 'vendor', 'category', 'amount'
-    Returns: pandas DataFrame grouped by month and vendor/category
+    data: list of dicts like
+        {
+            "invoice_date": <date or string>,
+            "vendor": <str>,
+            "category": <str>,
+            "amount": <float>
+        }
+
+    Returns a DataFrame with columns:
+        - month         (string, 'YYYY-MM')
+        - total_amount  (float)
     """
-    df = pd.DataFrame(invoice_records)
-    df['month'] = pd.to_datetime(df['invoice_date']).dt.to_period('M')
-    
-    trends = df.groupby(['month', 'vendor', 'category'])['amount'].sum().reset_index()
+
+    df = pd.DataFrame(data)
+
+    if df.empty:
+        return pd.DataFrame(columns=["month", "total_amount"])
+
+    # Parse dates; invalid values -> NaT
+    df["invoice_date"] = pd.to_datetime(df["invoice_date"], errors="coerce")
+    df = df.dropna(subset=["invoice_date"])
+
+    if df.empty:
+        return pd.DataFrame(columns=["month", "total_amount"])
+
+    # Month as string, e.g. '2025-11'
+    df["month"] = df["invoice_date"].dt.to_period("M").astype(str)
+
+    trends = (
+        df.groupby("month")["amount"]
+        .sum()
+        .reset_index()
+        .rename(columns={"amount": "total_amount"})
+    )
+
     return trends
 
-def top_vendors(invoice_records, top_n=5):
+
+def top_vendors(data, n: int = 5):
     """
-    Top vendors by expense amount.
+    Optional helper:
+
+    Returns top-N vendors by total spend with columns:
+        - vendor
+        - total_amount
     """
-    df = pd.DataFrame(invoice_records)
-    summary = df.groupby('vendor')['amount'].sum()
-    return summary.sort_values(ascending=False).head(top_n)
+
+    df = pd.DataFrame(data)
+
+    if df.empty:
+        return pd.DataFrame(columns=["vendor", "total_amount"])
+
+    df["amount"] = pd.to_numeric(df["amount"], errors="coerce")
+    df = df.dropna(subset=["amount"])
+
+    if df.empty:
+        return pd.DataFrame(columns=["vendor", "total_amount"])
+
+    vendors = (
+        df.groupby("vendor")["amount"]
+        .sum()
+        .reset_index()
+        .rename(columns={"amount": "total_amount"})
+        .sort_values("total_amount", ascending=False)
+        .head(n)
+    )
+
+    return vendors

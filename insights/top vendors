@@ -1,0 +1,76 @@
+@app.get("/insights/expense-trends")
+def expense_trends_endpoint(db: Session = Depends(get_db)):
+    invoices = db.query(Invoice).all()
+    data = [
+        {
+            "invoice_date": inv.invoice_date,
+            "vendor": inv.vendor.name if inv.vendor else "Unknown",
+            "category": "General",
+            "amount": inv.amount,
+        }
+        for inv in invoices
+    ]
+
+    df = pd.DataFrame(data)
+
+    if df.empty:
+        return []
+
+    # clean dates
+    df["invoice_date"] = pd.to_datetime(df["invoice_date"], errors="coerce")
+    df = df.dropna(subset=["invoice_date"])
+
+    if df.empty:
+        return []
+
+    # month as YYYY-MM string
+    df["month"] = df["invoice_date"].dt.to_period("M").astype(str)
+
+    trends = (
+        df.groupby("month")["amount"]
+        .sum()
+        .reset_index()
+        .rename(columns={"amount": "total_amount"})
+    )
+
+    return trends.to_dict(orient="records")
+
+
+@app.get("/insights/top-vendors")
+def top_vendors_endpoint(db: Session = Depends(get_db), limit: int = 10):
+    invoices = db.query(Invoice).all()
+    data = [
+        {
+            "vendor": inv.vendor.name if inv.vendor else "Unknown",
+            "amount": inv.amount,
+            "invoice_date": inv.invoice_date,
+        }
+        for inv in invoices
+    ]
+
+    df = pd.DataFrame(data)
+
+    if df.empty:
+        return []
+
+    df["amount"] = pd.to_numeric(df["amount"], errors="coerce")
+    df = df.dropna(subset=["amount"])
+
+    if df.empty:
+        return []
+
+    grouped = (
+        df.groupby("vendor")
+        .agg(
+            total_amount=("amount", "sum"),
+            invoice_count=("amount", "count"),
+            last_invoice_date=("invoice_date", "max"),
+        )
+        .reset_index()
+        .sort_values("total_amount", ascending=False)
+        .head(limit)
+    )
+
+    grouped["last_invoice_date"] = grouped["last_invoice_date"].astype(str)
+
+    return grouped.to_dict(orient="records")
